@@ -849,6 +849,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "TokensObject")]
     pub type TokensObject;
 
+    #[wasm_bindgen(typescript_type = "LibrariesObject")]
+    pub type LibrariesObject;
+
     #[wasm_bindgen(typescript_type = "Array<AbiParam>")]
     pub type ParamsList;
 
@@ -881,4 +884,7 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "TransactionTree")]
     pub type JsTransactionTree;
+
+    #[wasm_bindgen(typescript_type = "Promise<ExecutionOutput>")]
+    pub type PromiseExecutionOutput;
 }
