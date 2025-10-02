@@ -65,7 +65,6 @@ pub fn run_local(
         config.global_id = signature_id;
         config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
     }
-    config.capabilities |= ton_block::GlobalCapabilities::CapSetLibCode as u64;
 
     let output = method
         .run_local_ext(
@@ -107,7 +106,6 @@ pub fn run_getter(
         config.global_id = signature_id;
         config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
     }
-    config.capabilities |= ton_block::GlobalCapabilities::CapSetLibCode as u64;
 
     let output = nt::abi::ExecutionContext {
         clock: clock.inner.as_ref(),
@@ -147,7 +145,6 @@ pub async fn run_local_with_libs(
         config.global_id = signature_id;
         config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
     }
-    config.capabilities |= ton_block::GlobalCapabilities::CapSetLibCode as u64;
 
     Ok(JsCast::unchecked_into(future_to_promise(async move {
         run_local_with_libs_internal(
