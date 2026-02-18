@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use nt::core::models;
-
+use nt::utils::SignatureType;
+use serde::Deserialize;
 use ton_block::{Deserializable, Serializable};
 use ton_types::UInt256;
 use wasm_bindgen::prelude::*;
@@ -20,7 +21,7 @@ export type NetworkCapabilities = {
 };
 
 export type NetworkDescription = NetworkCapabilities & {
-    signatureId: number | undefined,
+    signatureContext: SignatureContext,
 };
 
 export type BlockchainConfig = {
@@ -231,6 +232,16 @@ export type StorageFeeInfo = {
     freezeDueLimit: string;
     deleteDueLimit: string;
 };
+
+export type SignatureContext = {
+    globalId: number | null,
+    signatureType: SignatureType,
+};
+
+export type SignatureType =
+  | { type: "empty" }
+  | { type: "signatureId"}
+  | { type: "signatureDomain"};
 "#;
 
 // TODO: add zerostate hash
@@ -238,7 +249,10 @@ pub fn make_network_description(capabilities: models::NetworkCapabilities) -> Js
     ObjectBuilder::new()
         .set("globalId", capabilities.global_id)
         .set("capabilities", format!("0x{:x}", capabilities.raw))
-        .set("signatureId", capabilities.signature_id())
+        .set(
+            "signatureContext",
+            make_signature_context(capabilities.signature_context()),
+        )
         .build()
 }
 
@@ -742,6 +756,66 @@ pub fn make_vm_getter_output(
     Ok(builder.build().unchecked_into())
 }
 
+#[derive(Copy, Clone, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "camelCase")]
+pub enum ParsedSignatureType {
+    Empty,
+    SignatureId,
+    SignatureDomain,
+}
+
+impl From<ParsedSignatureType> for nt::utils::SignatureType {
+    fn from(sd: ParsedSignatureType) -> Self {
+        match sd {
+            ParsedSignatureType::Empty => nt::utils::SignatureType::Empty,
+            ParsedSignatureType::SignatureId => nt::utils::SignatureType::SignatureId,
+            ParsedSignatureType::SignatureDomain => nt::utils::SignatureType::SignatureDomain,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedSignatureContext {
+    pub global_id: Option<i32>,
+    pub signature_type: ParsedSignatureType,
+}
+
+impl From<ParsedSignatureContext> for nt::utils::SignatureContext {
+    fn from(sd: ParsedSignatureContext) -> Self {
+        nt::utils::SignatureContext {
+            global_id: sd.global_id,
+            signature_type: sd.signature_type.into(),
+        }
+    }
+}
+
+pub fn parse_signature_context(
+    sd: JsSignatureContext,
+) -> Result<nt::utils::SignatureContext, JsValue> {
+    let parsed: ParsedSignatureContext =
+        serde_wasm_bindgen::from_value(sd.into())
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    Ok(parsed.into())
+}
+
+pub fn make_signature_context(data: nt::utils::SignatureContext) -> JsSignatureContext {
+    let ty = match data.signature_type {
+        SignatureType::Empty => "empty",
+        SignatureType::SignatureId => "signatureId",
+        SignatureType::SignatureDomain => "signatureDomain",
+    };
+    ObjectBuilder::new()
+        .set(
+            "signatureType",
+            ObjectBuilder::new().set("type", ty).build(),
+        )
+        .set("globalId", data.global_id)
+        .build()
+        .unchecked_into()
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "TransactionId")]
@@ -887,4 +961,11 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "Promise<ExecutionOutput>")]
     pub type PromiseExecutionOutput;
+
+    #[wasm_bindgen(typescript_type = "SignatureType")]
+    pub type JsSignatureType;
+
+    #[wasm_bindgen(typescript_type = "SignatureContext")]
+    pub type JsSignatureContext;
 }
+
