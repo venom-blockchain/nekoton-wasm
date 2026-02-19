@@ -238,7 +238,8 @@ impl Transport for ProxyTransport {
             .map_err(map_js_err)?
             .as_string();
 
-        cell.map(|cell| ton_types::Cell::construct_from_base64(&cell)).transpose()
+        cell.map(|cell| ton_types::Cell::construct_from_base64(&cell))
+            .transpose()
     }
 }
 

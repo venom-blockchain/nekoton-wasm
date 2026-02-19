@@ -52,18 +52,27 @@ pub fn run_local(
     input: TokensObject,
     libraries: LibrariesObject,
     responsible: bool,
-    signature_id: Option<i32>,
+    signature_ctx: JsSignatureContext,
 ) -> Result<ExecutionOutput, JsValue> {
     let account_stuff = parse_account_stuff(account_stuff_boc)?;
     let contract_abi = parse_contract_abi(contract_abi)?;
     let method = contract_abi.function(method).handle_error()?;
     let input = parse_tokens_object(&method.inputs, input).handle_error()?;
-    let libs  = parse_libraries(libraries)?;
+    let libs = parse_libraries(libraries)?;
+    let ctx = parse_signature_context(signature_ctx)?;
 
     let mut config = nt::abi::BriefBlockchainConfig::default();
-    if let Some(signature_id) = signature_id {
-        config.global_id = signature_id;
-        config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+    match (ctx.signature_type, ctx.global_id) {
+        (nt::utils::SignatureType::SignatureId, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+        }
+        (nt::utils::SignatureType::SignatureDomain, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureDomain as u64;
+        }
+        _ => {}
     }
 
     let output = method
@@ -88,13 +97,14 @@ pub fn run_getter(
     method: &str,
     input: TokensObject,
     libraries: LibrariesObject,
-    signature_id: Option<i32>,
+    signature_ctx: JsSignatureContext,
 ) -> Result<ExecutionOutput, JsValue> {
     let account_stuff = parse_account_stuff(account_stuff_boc)?;
     let contract_abi = parse_contract_abi(contract_abi)?;
     let getter = contract_abi.getter(method).handle_error()?;
     let input = parse_tokens_object(&getter.inputs, input).handle_error()?;
-    let libs  = parse_libraries(libraries)?;
+    let libs = parse_libraries(libraries)?;
+    let ctx = parse_signature_context(signature_ctx)?;
 
     let args = input
         .into_iter()
@@ -102,9 +112,17 @@ pub fn run_getter(
         .collect::<Result<Vec<_>, JsValue>>()?;
 
     let mut config = nt::abi::BriefBlockchainConfig::default();
-    if let Some(signature_id) = signature_id {
-        config.global_id = signature_id;
-        config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+    match (ctx.signature_type, ctx.global_id) {
+        (nt::utils::SignatureType::SignatureId, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+        }
+        (nt::utils::SignatureType::SignatureDomain, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureDomain as u64;
+        }
+        _ => {}
     }
 
     let output = nt::abi::ExecutionContext {
@@ -128,22 +146,31 @@ pub async fn run_local_with_libs(
     libraries: LibrariesObject,
     retry_count: u8,
     responsible: bool,
-    signature_id: Option<i32>,
+    signature_ctx: JsSignatureContext,
 ) -> Result<PromiseExecutionOutput, JsValue> {
     let account_stuff = parse_account_stuff(account_stuff_boc)?;
     let contract_abi = parse_contract_abi(contract_abi)?;
     let method = contract_abi.function(method).handle_error()?;
     let input = parse_tokens_object(&method.inputs, input).handle_error()?;
-    let libs  = parse_libraries(libraries)?;
+    let libs = parse_libraries(libraries)?;
+    let ctx = parse_signature_context(signature_ctx)?;
 
     let clock = transport.clock.clone();
     let transport = transport.handle.clone();
     let method = method.clone();
 
     let mut config = nt::abi::BriefBlockchainConfig::default();
-    if let Some(signature_id) = signature_id {
-        config.global_id = signature_id;
-        config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+    match (ctx.signature_type, ctx.global_id) {
+        (nt::utils::SignatureType::SignatureId, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+        }
+        (nt::utils::SignatureType::SignatureDomain, Some(global_id)) => {
+            config.global_id = global_id;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureWithId as u64;
+            config.capabilities |= ton_block::GlobalCapabilities::CapSignatureDomain as u64;
+        }
+        _ => {}
     }
 
     Ok(JsCast::unchecked_into(future_to_promise(async move {
@@ -838,7 +865,9 @@ pub fn decode_transaction(
             None => return Ok(None),
         };
 
-    let input = method.decode_input(in_msg_body, internal, false).handle_error()?;
+    let input = method
+        .decode_input(in_msg_body, internal, false)
+        .handle_error()?;
 
     let out_msgs = js_sys::Reflect::get(&transaction, &JsValue::from_str("outMessages"))?;
     if !js_sys::Array::is_array(&out_msgs) {
@@ -1024,7 +1053,6 @@ pub fn sign_data(
     let secret = ed25519_dalek::SecretKey::from_bytes(&secret_key).handle_error()?;
     secret_key.zeroize();
 
-
     let public = ed25519_dalek::PublicKey::from(&secret);
     let key_pair = ed25519_dalek::Keypair { secret, public };
     let signature = ctx.sign(&key_pair, &data);
@@ -1050,10 +1078,7 @@ pub fn verify_signature(
     let data = parse_hex_or_base64_bytes(data).handle_error()?;
     let signature = parse_signature(signature)?;
 
-    let to_sign = nt::utils::ToSign {
-        ctx,
-        data,
-    };
+    let to_sign = nt::utils::ToSign { ctx, data };
 
     let data = to_sign.write_to_bytes();
 
@@ -1187,7 +1212,6 @@ const TS_CUSTOM_TYPES: &'static str = r#"
 export type LibrariesObject = { [K: string]: string };
 "#;
 fn parse_libraries(libraries: LibrariesObject) -> Result<Vec<HashmapE>, JsValue> {
-
     let mut libs = Vec::new();
 
     let obj: &js_sys::Object = libraries.unchecked_ref();
